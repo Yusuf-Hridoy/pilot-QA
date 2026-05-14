@@ -33,3 +33,46 @@ Output the file contents and folder commands only. No explanations.
 
 **Result:** ✅ worked / ❌ had to fix X
 **Notes:**
+
+---
+
+## Day 2 — Pydantic models
+**Prompt:**
+In src/playwright_pilot/models.py, define these pydantic v2 models:
+
+1. UserStory:
+   - goal: str
+   - actions: list[str]
+   - expected_outcomes: list[str]
+   - target_url: str | None = None
+
+2. PlannedAction:
+   - action_type: Literal["navigate", "click", "fill", "verify", "wait"]
+   - target: str  (natural language description, NOT a CSS selector)
+   - value: str | None = None
+   - verification: str | None = None
+
+3. ActionPlan:
+   - story: UserStory
+   - steps: list[PlannedAction]
+
+Rules:
+- Use Field(..., description="...") for each field
+- Add a model_validator (mode="after") on PlannedAction: if action_type == "fill", value must be provided (non-empty string)
+- Add a model_validator (mode="after") on ActionPlan: steps must not be empty
+
+Then in tests/test_models.py, write 4 pytest cases:
+1. test_valid_user_story_creates_successfully
+2. test_fill_action_without_value_raises_validation_error
+3. test_empty_action_plan_steps_raises_validation_error
+4. test_models_serialize_to_json
+
+Constraints:
+- Pure pydantic v2, no external dependencies
+- Keep models.py under 100 lines
+- Readable code, no metaprogramming, no inheritance hierarchies
+- Use `from typing import Literal` and `from pydantic import BaseModel, Field, model_validator`
+- All comments and docstrings in English
+
+**Result:** ✅ worked / ❌ had to fix X
+**Notes:**
