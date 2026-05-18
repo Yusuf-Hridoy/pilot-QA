@@ -146,3 +146,108 @@ Constraints:
 **Notes:**
 - Needed `pip install -e .` so the package was importable from the venv
 - User's shell had pyenv overriding the venv `python`, so `.venv/bin/python` was needed
+
+---
+
+## Day 4-5 — Planner
+**Prompt:**
+Build the Planner module for playwright-pilot.
+
+Two files to create:
+
+==========================================
+FILE 1: src/playwright_pilot/prompts/planner.txt
+==========================================
+
+Create the file with this exact content (no extra wrapping):
+
+You are an expert QA test planner.
+
+Given a UserStory, produce a JSON ActionPlan with atomic, executable steps.
+
+RULES:
+- Each step performs exactly ONE action.
+- Use natural-language descriptions in "target" fields (e.g. "the username input field", "the Login button"). NEVER write CSS selectors, XPath, or HTML.
+- Include a "verify" step after every meaningful state change.
+- The first step should usually be "navigate" to the target_url.
+- Use action_type from this fixed set ONLY: "navigate", "click", "fill", "verify", "wait".
+- For "fill" actions, the "value" field is required.
+- For "verify" actions, the "verification" field is required and describes what should be true.
+- Always respond in English.
+- Respond with ONLY valid JSON matching the schema below. No prose, no markdown fences.
+
+SCHEMA:
+{
+  "story": <the input UserStory unchanged>,
+  "steps": [
+    {
+      "action_type": "navigate" | "click" | "fill" | "verify" | "wait",
+      "target": "natural language description of the target element or URL",
+      "value": "only required for fill actions",
+      "verification": "only required for verify actions"
+    }
+  ]
+}
+
+INPUT USER STORY:
+{story_json}
+
+==========================================
+FILE 2: src/playwright_pilot/planner.py
+==========================================
+
+Implement:
+
+    class PlannerError(Exception): pass
+
+    class Planner:
+        def __init__(self) -> None: ...
+        def plan(self, story: UserStory) -> ActionPlan: ...
+
+Requirements:
+- Import `chat` from playwright_pilot.llm_client
+- Import UserStory, ActionPlan from playwright_pilot.models
+- Load the prompt template from src/playwright_pilot/prompts/planner.txt at __init__ time. Use pathlib relative to this file's location, not cwd.
+- In plan():
+    1. Format the prompt by replacing {story_json} with story.model_dump_json()
+    2. Build messages: [{"role": "system", "content": "You always respond in English with valid JSON only."}, {"role": "user", "content": formatted_prompt}]
+    3. Call chat(messages, json_mode=True)
+    4. Try to parse the response as JSON, then validate via ActionPlan.model_validate(parsed_dict)
+    5. On failure (json.JSONDecodeError OR pydantic ValidationError), retry ONCE with a stricter system message: "Your previous response was invalid. You must respond with valid JSON only matching the requested schema. No prose, no markdown."
+    6. After the second failure, raise PlannerError with the underlying exception chained via `raise ... from e`
+- Return the validated ActionPlan
+- Keep planner.py under 100 lines
+
+==========================================
+FILE 3: tests/test_planner.py
+==========================================
+
+Write 4 pytest cases. Use unittest.mock.patch to mock playwright_pilot.planner.chat (patch where it's imported, not where it's defined).
+
+1. test_planner_returns_valid_action_plan
+   Mock chat() to return a valid JSON string matching ActionPlan schema.
+   Confirm Planner().plan(story) returns a correctly-typed ActionPlan with steps preserved.
+
+2. test_planner_retries_once_on_invalid_json
+   Mock chat() to return "not valid json" on first call, valid JSON on second call.
+   Confirm chat is called exactly 2 times and plan returns successfully.
+
+3. test_planner_raises_after_two_failures
+   Mock chat() to return invalid JSON both times.
+   Confirm PlannerError is raised.
+
+4. test_planner_preserves_original_story
+   Mock chat() to return a valid plan.
+   Confirm returned ActionPlan.story equals the input story.
+
+Constraints:
+- No real API calls in tests
+- No pytest fixtures needed for these 4 tests — keep them self-contained
+- All comments and docstrings in English
+- Do NOT import or use LangChain, LangGraph, or any agent framework
+
+**Result:** ✅ 4 planner tests passed (13 total)
+**Real LLM smoke test:** ✅ Mistral returned a valid plan
+**Notes:**
+- Had to fix a hardcoded `alias python="..."` in ~/.zshrc that broke venv activation; replaced with a shell function that checks $VIRTUAL_ENV
+- Mistral produced clean JSON, respected the schema, used natural-language targets, included navigate as first step, and added verify steps after state changes
