@@ -251,3 +251,98 @@ Constraints:
 **Notes:**
 - Had to fix a hardcoded `alias python="..."` in ~/.zshrc that broke venv activation; replaced with a shell function that checks $VIRTUAL_ENV
 - Mistral produced clean JSON, respected the schema, used natural-language targets, included navigate as first step, and added verify steps after state changes
+
+---
+
+## Day 6 — Explorer foundation
+**Prompt:**
+Build the Explorer foundation for playwright-pilot.
+
+ONE file to create: src/playwright_pilot/explorer.py
+
+Requirements:
+
+Imports:
+- pathlib.Path
+- typing (Literal, Any)
+- playwright.sync_api (sync_playwright, Page, Browser, BrowserContext, TimeoutError as PlaywrightTimeoutError)
+- playwright_pilot.models (ActionPlan, PlannedAction)
+
+Exceptions to define:
+    class ExplorerError(Exception): pass
+    class ActionExecutionError(ExplorerError): pass
+
+Data class (use a simple pydantic model in models.py if needed, otherwise a dataclass here):
+
+    @dataclass
+    class StepResult:
+        step_index: int
+        action: PlannedAction
+        success: bool
+        screenshot_path: Path | None
+        error_message: str | None = None
+        dom_snapshot: str | None = None
+
+    @dataclass  
+    class RunResult:
+        plan: ActionPlan
+        step_results: list[StepResult]
+        all_passed: bool
+        artifacts_dir: Path
+
+Main class:
+
+    class Explorer:
+        def __init__(
+            self,
+            headless: bool = True,
+            artifacts_dir: Path | None = None,
+            timeout_ms: int = 10_000,
+        ) -> None: ...
+
+        def run(self, plan: ActionPlan) -> RunResult: ...
+
+Behavior:
+- artifacts_dir defaults to Path("artifacts") / <timestamp>
+- Create the artifacts_dir if it doesn't exist; create a "screenshots" subfolder
+- Use sync_playwright() as a context manager — launch chromium with headless=self.headless
+- Create a fresh browser context for isolation (viewport 1280x720)
+- For each step in plan.steps:
+    1. Call self._execute_action(page, step) — implement this private method
+    2. Capture a screenshot at artifacts_dir/screenshots/step_{index:02d}_{action_type}.png
+    3. Capture a DOM snapshot via page.accessibility.snapshot() — store as JSON string
+    4. Append a StepResult; if a step fails, set success=False and STOP further execution (no point continuing if step 3 of 5 broke)
+- Return RunResult with all_passed = all step_results successful
+
+The _execute_action method:
+- Dispatches based on action.action_type:
+    - "navigate": page.goto(action.target if target looks like URL, else plan.story.target_url)
+    - "click": use page.get_by_role("button", name=...) or page.get_by_text(...) — try role first, fall back to text
+    - "fill": same locator strategy, then .fill(action.value)
+    - "verify": store DOM snapshot, mark as success=True for now (LLM verification comes Day 7-9; leave a TODO comment)
+    - "wait": page.wait_for_timeout(2000) or page.wait_for_load_state("networkidle")
+- Wrap each action in try/except — on PlaywrightTimeoutError or generic Exception, raise ActionExecutionError with context (which step, which target)
+
+Selector resolution helper:
+    def _resolve_locator(self, page: Page, target: str, action_type: str): ...
+    - For clicks: try get_by_role("button", name=target) first, then get_by_role("link", name=target), then get_by_text(target, exact=False)
+    - For fills: try get_by_label(target) first, then get_by_placeholder(target), then get_by_role("textbox", name=target)
+    - Return the first locator that resolves to exactly one element (use .count() == 1 check)
+    - If none match, raise ActionExecutionError with: "Could not resolve target: <target>"
+
+Constraints:
+- SYNCHRONOUS playwright only (sync_api), not async
+- No LLM calls in this module yet — that's Day 7-9
+- Keep explorer.py under 200 lines
+- All print/logging via `rich.print` from the rich library
+- Type hints on all public methods
+- Docstrings on the class and public methods
+- All comments in English
+
+**Result:** ✅ smoke test on OrangeHRM passed
+**Notes:**
+- `page.accessibility.snapshot()` does not exist in Playwright Python 1.59.0; replaced with `page.content()` (full HTML)
+- Default timeout 10s was too slow for OrangeHRM; bumped to 30s
+- Screenshot and DOM snapshot needed try/except wrapping so a navigate timeout wouldn't cascade into a screenshot crash
+- Selector resolution failed first try: LLM outputs "the Username input field" but page label is just "Username". Added `_clean_target()` to strip filler words (the, input field, field, button, etc.) and retry before giving up
+- Switched smoke test target from OrangeHRM to Sauce Demo for stability
