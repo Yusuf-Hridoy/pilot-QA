@@ -76,3 +76,73 @@ Constraints:
 
 **Result:** ✅ worked / ❌ had to fix X
 **Notes:**
+---
+
+## Day 3 — Parser
+**Prompt:**
+In src/playwright_pilot/parser.py, write a parser that converts plain English ticket text into a UserStory model.
+
+Public API:
+    parse_ticket(text: str) -> UserStory
+
+Also define:
+    class ParseError(Exception): pass
+
+Rules:
+- Pure Python only — no LLM calls, no API calls, no external libraries beyond stdlib and pydantic
+- Import UserStory from playwright_pilot.models
+- Accept TWO input styles:
+
+  Style A (structured) — text contains sections like:
+      Goal: <one line>
+      URL: <one line, optional>
+      Steps:
+        - step one
+        - step two
+      Verify:
+        - outcome one
+        - outcome two
+
+  Style B (loose prose) — plain paragraphs.
+      For loose prose: split on sentences (use simple "." or newline splitting, no nltk).
+      The first sentence is the goal.
+      Remaining sentences become actions.
+      Any sentence containing "verify", "should", "must", or "ensure" goes into expected_outcomes.
+
+- URL extraction: scan the entire text for any http:// or https:// URL using a simple regex. If found, set target_url.
+
+- Raise ParseError with a helpful message if:
+    * text is empty or only whitespace
+    * goal cannot be determined (no Goal: section and no parseable first sentence)
+    * actions list is empty after parsing
+
+- Return a populated UserStory model. Use model validation (pydantic will catch invalid data automatically).
+
+Then in tests/test_parser.py, write 5 pytest cases:
+
+1. test_structured_input_parses_all_sections
+   Input has Goal, URL, Steps, Verify sections. Confirm all four fields populated correctly.
+
+2. test_loose_prose_parses_correctly
+   Input is a single paragraph. Confirm goal is first sentence, actions and outcomes split sensibly.
+
+3. test_empty_input_raises_parse_error
+   parse_ticket("") and parse_ticket("   ") both raise ParseError.
+
+4. test_url_extracted_from_text
+   Input contains "https://opensource-demo.orangehrmlive.com" somewhere. Confirm target_url is set.
+
+5. test_input_with_no_actions_raises_parse_error
+   Input has a goal but no steps. Confirm ParseError is raised.
+
+Constraints:
+- Keep parser.py under 100 lines
+- Readable code — no clever regex tricks, no list comprehensions nested more than one level deep
+- Use only: re, typing, playwright_pilot.models
+- All docstrings and comments in English
+- Function should have a clear docstring with examples
+
+**Result:** ✅ 5 parser tests passed (9 total)
+**Notes:**
+- Needed `pip install -e .` so the package was importable from the venv
+- User's shell had pyenv overriding the venv `python`, so `.venv/bin/python` was needed
